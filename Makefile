@@ -17,6 +17,13 @@ $(wildcard GD32VF103_Firmware_Library_V1.6.0/Firmware/RISCV/drivers/*.c) \
 $(wildcard GD32VF103_Firmware_Library_V1.6.0/Firmware/RISCV/env_Eclipse/*.c) \
 $(wildcard GD32VF103_Firmware_Library_V1.6.0/Firmware/RISCV/stubs/*.c) \
 
+# for MicroQuickJS
+C_SOURCES += \
+mquickjs/dtoa.c \
+mquickjs/libm.c \
+mquickjs/cutils.c \
+mquickjs/mquickjs.c \
+
 # add your c source here
 C_SOURCES += \
 $(wildcard ./*.c) \
@@ -37,6 +44,10 @@ C_INCLUDES =  \
 -I GD32VF103_Firmware_Library_V1.6.0/Firmware/RISCV/drivers \
 -I GD32VF103_Firmware_Library_V1.6.0/Firmware/RISCV/stubs \
 
+# for MicroQuickJS
+C_INCLUDES += \
+-I mquickjs \
+
 # add your includes here
 C_INCLUDES += \
 -I . \
@@ -51,7 +62,7 @@ AS_INCLUDES =
 # debug build?
 DEBUG = 1
 # optimization
-OPT = -Og
+OPT = -Os
 
 # Build path
 BUILD_DIR = build
@@ -139,6 +150,12 @@ vpath %.c $(sort $(dir $(C_SOURCES)))
 # list of ASM program objects
 OBJECTS += $(addprefix $(BUILD_DIR)/,$(notdir $(ASM_SOURCES:.s=.o)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))
+
+# for js script
+OBJECTS += $(BUILD_DIR)/script.o
+$(BUILD_DIR)/script.o: script.js Makefile | $(BUILD_DIR)
+	@echo "CC $<"
+	@$(CC) $(ARCH) -r -Wl,-b,binary $< -o $@
 
 $(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR) 
 	@echo "CC $<"

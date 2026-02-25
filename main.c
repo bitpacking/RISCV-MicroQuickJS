@@ -53,6 +53,8 @@ OF SUCH DAMAGE.
 #include "gd32vf103.h"
 #include "systick.h"
 
+extern int js_runtime(void);
+
 void __attribute__((constructor))init(void)
 {
     extern void _init(void);
@@ -95,6 +97,9 @@ int main(void)
     printf("CK_AHB: %d\n", rcu_clock_freq_get(CK_AHB));
     printf("CK_APB1: %d\n", rcu_clock_freq_get(CK_APB1));
     printf("CK_APB2: %d\n", rcu_clock_freq_get(CK_APB2));
+
+    int js_rt_retval = js_runtime();
+    printf("MicroQuickJS Runtime return %d\n", js_rt_retval);
 
     while (1) {
         gpio_bit_reset(GPIOA, GPIO_PIN_1);
