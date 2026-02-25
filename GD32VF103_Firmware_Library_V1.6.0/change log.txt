@@ -1,0 +1,130 @@
+/*!
+    \file    change log.txt
+    \brief   change log for GD32VF10x firmware
+
+    \version 2025-08-07, V1.6.0, firmware for GD32VF103
+*/
+
+/*
+    Copyright (c) 2025, GigaDevice Semiconductor Inc.
+
+    Redistribution and use in source and binary forms, with or without modification, 
+are permitted provided that the following conditions are met:
+
+    1. Redistributions of source code must retain the above copyright notice, this 
+       list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright notice, 
+       this list of conditions and the following disclaimer in the documentation 
+       and/or other materials provided with the distribution.
+    3. Neither the name of the copyright holder nor the names of its contributors 
+       may be used to endorse or promote products derived from this software without 
+       specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED 
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, 
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT 
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR 
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY 
+OF SUCH DAMAGE.
+*/
+
+******************* V1.6.0 2025-08-07 ******************************************************************************************
+______________________Module CAN______________________________________________________________________________________________
+Fix file:
+../GD32VF103_Firmware_Library/Firmware/GD32VF103_standard_peripheral/Source/gd32vf103_can.c
+fix reason:
+Fix the CAN DLC bug
+V1.5.0:
+none
+V1.6.0:
+
+    /* Classic CAN frame data lenth does not exceed 8 */
+    if (transmit_message->tx_dlen > 8U) {
+        transmit_message->tx_dlen = 8U;
+    }
+
+
+______________________Module USART______________________________________________________________________________________________
+Fix file:
+../GD32VF103_Firmware_Library/Examples/USART/Half_duplex_transmitter&receiver/main.c
+fix reason:
+Modify the pin configuration for half-duplex mode
+V1.5.0:
+/* configure USART0 Tx as alternate function push-pull */
+gpio_init(GPIOA, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_9);
+/* configure USART1 Tx as alternate function push-pull */
+gpio_init(GPIOA, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_2);
+V1.6.0:
+/* configure USART0 Tx as alternate function open-drain */
+gpio_init(GPIOA, GPIO_MODE_AF_OD, GPIO_OSPEED_50MHZ, GPIO_PIN_9);
+/* configure USART1 Tx as alternate function open-drain */
+gpio_init(GPIOA, GPIO_MODE_AF_OD, GPIO_OSPEED_50MHZ, GPIO_PIN_2);
+
+Fix file:
+../GD32VF103_Firmware_Library/Examples/USART/Half_duplex_transmitter&receiver/readme.txt
+fix reason:
+Modify the pin configuration for half-duplex mode
+V1.5.0:
+connect  USART0_Tx(PA9) to USART1_Tx(PA2)
+JP5 and JP6 must be fitted.
+V1.6.0:
+connect  USART0_Tx(PA9) to USART1_Tx(PA2), and jumper to PB7 with a pull-up resistor.
+JP5 and JP6 must be fitted.
+__________________________________________________________________________________________________________________________
+
+________________________Module USB _______________________________________________________________________________________
+Fix file:
+../GD32VF103_Firmware_Library/Firmware/GD32VF103_usbfs_library/driver/Source/drv_usb_dev.c
+fix reason: 
+Revise the description.
+V1.5.0:
+    uint32_t enum_speed = udev->regs.dr->DSTAT & DSTAT_ES;
+V1.6.0:
+    uint32_t enum_speed = ((udev->regs.dr->DSTAT & DSTAT_ES) >> 1);
+
+Fix file:
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/dev_firmware_update/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/in_application_program_hid/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/msc_cdrom/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/msc_udisk/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/standard_hid_mouse/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Device/usb_printer/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Host/usb_host_keyboard_mouse/Source/system_gd32vf103.c
+../GD32VF103_Firmware_Library/Examples/USBFS/USB_Host/usb_host_msc_udisk/Source/system_gd32vf103.c
+fix reason:
+add clock switch cod
+V1.5.0:
+none
+V1.6.0:
+/* The following is to prevent Vcore fluctuations caused by frequency switching. 
+   It is strongly recommended to include it to avoid issues caused by self-removal. */
+#define RCU_MODIFY_DE_2(__delay)  do{                                     \
+                                      volatile uint32_t i,reg;            \
+                                      if(0 != __delay){                   \
+                                          /* Insert a software delay */   \
+                                          for(i=0; i<__delay; i++){       \
+                                          }                               \
+                                          reg = RCU_CFG0;                 \
+                                          reg &= ~(RCU_CFG0_AHBPSC);     \
+                                          reg |= RCU_AHB_CKSYS_DIV2;     \
+                                          /* AHB = SYSCLK/2 */           \
+                                          RCU_CFG0 = reg;                \
+                                          /* Insert a software delay */  \
+                                          for(i=0; i<__delay; i++){      \
+                                          }                              \
+                                          reg = RCU_CFG0;                \
+                                          reg &= ~(RCU_CFG0_AHBPSC);     \
+                                          reg |= RCU_AHB_CKSYS_DIV4;     \
+                                          /* AHB = SYSCLK/4 */           \
+                                          RCU_CFG0 = reg;                \
+                                          /* Insert a software delay */  \
+                                          for(i=0; i<__delay; i++){      \
+                                          }                              \
+                                      }                                  \
+                                  }while(0)
+____________________________________________________________________________________________________________________________________
+
