@@ -3,7 +3,7 @@
 ######################################
 # Target
 ######################################
-TARGET = GD32VF103
+TARGET = MicroQuickJS
 
 
 ######################################
@@ -179,13 +179,23 @@ clean:
 # Program
 #######################################
 flash: all
-	$()openocd -c "adapter driver cmsis-dap; adapter speed 5000; transport select jtag" -f target/gd32vf103.cfg -c "program $(BUILD_DIR)/$(TARGET).elf" -c "reset; exit"
+	@echo $@
+	@$()openocd -f interface/cmsis-dap.cfg \
+				-f target/gigadevice/gd32vf103.cfg \
+				-c "adapter speed 5000" \
+				-c "program $(BUILD_DIR)/$(TARGET).elf" \
+				-c reset \
+				-c shutdown
 
 debug: all
-	$()openocd -c "adapter driver cmsis-dap; adapter speed 5000; transport select jtag" -f target/gd32vf103.cfg 
+	@echo $@
+	@$()openocd -f interface/cmsis-dap.cfg \
+				-f target/gigadevice/gd32vf103.cfg \
+				-c "adapter speed 5000" \
 
 dfu: all
-	$()dfu-util -a 0 -s 0x08000000:leave -D $(BUILD_DIR)/$(TARGET).bin
+	@echo $@
+	@$()dfu-util -a 0 -s 0x08000000:leave -D $(BUILD_DIR)/$(TARGET).bin
 
 #######################################
 # dependencies
