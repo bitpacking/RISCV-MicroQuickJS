@@ -7,6 +7,31 @@ TARGET = MicroQuickJS
 
 
 ######################################
+# Host tool 
+######################################
+HOST_TARGET = mqjs_stdlib
+EXE = .exe
+
+HOST_CC = gcc
+HOST_CFLAGS = -I mquickjs -Wall
+
+# header file name of js stdlib
+STDLIB_HEADER = js_stdlib.h
+GENERATED_HEADERS = mquickjs_atom.h $(STDLIB_HEADER)
+
+HOST_SOURCE = \
+user_stdlib.c \
+mquickjs/mquickjs_build.c \
+
+# exclude host c source file
+EXCLUDE_SOURCES = \
+./user_stdlib.c \
+./mqjs_stdlib.c \
+
+# js script file
+JS_SCRIPT = script.js
+
+######################################
 # Source
 ######################################
 # C sources
@@ -24,9 +49,9 @@ mquickjs/libm.c \
 mquickjs/cutils.c \
 mquickjs/mquickjs.c \
 
-# add your c source here
+# add all c file in the root dir
 C_SOURCES += \
-$(wildcard ./*.c) \
+$(filter-out $(EXCLUDE_SOURCES), $(wildcard ./*.c)) \
 
 # ASM sources
 ASM_SOURCES =  \
@@ -66,6 +91,7 @@ OPT = -Os
 
 # Build path
 BUILD_DIR = build
+HOST_BUILD_DIR = $(BUILD_DIR)/host
 
 
 ######################################
@@ -107,13 +133,13 @@ SZ = $(PREFIX)size
 OD = $(PREFIX)objdump
 HEX = $(CP) -O ihex
 BIN = $(CP) -O binary -S
- 
+
 
 #######################################
 # CFLAGS
 #######################################
 # architecture
-ARCH = -march=rv32imac -mabi=ilp32 -mcmodel=medlow
+ARCH = -march=rv32imac_zicsr -mabi=ilp32 -mcmodel=medlow
 
 # compile gcc flags
 ASFLAGS = $(ARCH) $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wl,-Bstatic#, -ffreestanding -nostdlib
@@ -138,12 +164,35 @@ LIBDIR =
 LDFLAGS = $(ARCH) -T$(LDSCRIPT) $(LIBDIR) $(LIBS) $(PERIFLIB_SOURCES) -Wl,--no-relax -Wl,--gc-sections -Wl,-Map,$(BUILD_DIR)/$(TARGET).map -nostartfiles #-ffreestanding -nostdlib
 
 # default action: build all
-all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).bin
+all: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET).hex $(BUILD_DIR)/$(TARGET).bin 
 
 
 #######################################
 # Build the application
 #######################################
+
+# Build host tool
+HOST_OBJECTS = $(addprefix $(HOST_BUILD_DIR)/, $(notdir $(HOST_SOURCE:.c=.o)))
+
+$(HOST_BUILD_DIR)/%.o: %.c Makefile | $(HOST_BUILD_DIR)
+	@echo "HOST CC $<"
+	@$(HOST_CC) -c $(HOST_CFLAGS) -MMD -MP -MF"$(@:%.o=%.d)" $< -o $@
+
+$(HOST_TARGET)$(EXE): $(HOST_OBJECTS) 
+	@echo "HOST LD $@"
+	@$(HOST_CC) -o $@ $^
+
+mquickjs_atom.h: $(HOST_TARGET)$(EXE)
+	@echo "GE $@"
+	@./$(HOST_TARGET)$(EXE) -a -m32 > $@
+
+$(STDLIB_HEADER): $(HOST_TARGET)$(EXE)
+	@echo "GE $@"
+	@./$(HOST_TARGET)$(EXE) -m32 > $@
+
+$(HOST_BUILD_DIR):
+	mkdir $@
+
 # list of objects
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
@@ -151,13 +200,13 @@ vpath %.c $(sort $(dir $(C_SOURCES)))
 OBJECTS += $(addprefix $(BUILD_DIR)/,$(notdir $(ASM_SOURCES:.s=.o)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))
 
-# for js script
-OBJECTS += $(BUILD_DIR)/script.o
-$(BUILD_DIR)/script.o: script.js Makefile | $(BUILD_DIR)
+# for js script file
+OBJECTS += $(BUILD_DIR)/$(JS_SCRIPT:.js=.o)
+$(BUILD_DIR)/%.o: %.js Makefile | $(BUILD_DIR)
 	@echo "CC $<"
-	@$(CC) $(ARCH) -r -Wl,-b,binary $< -o $@
+	@$(CC) $(ARCH) -nostdlib -r -Wl,-b,binary $< -o $@
 
-$(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR) 
+$(BUILD_DIR)/%.o: %.c Makefile | $(BUILD_DIR) $(GENERATED_HEADERS)
 	@echo "CC $<"
 	@$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
 
@@ -174,22 +223,23 @@ $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile
 	@$(SZ) $@
 
 $(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	$(HEX) $< $@
+	@echo "CP $@"
+	@$(HEX) $< $@
 	
 $(BUILD_DIR)/%.bin: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
-	$(BIN) $< $@	
+	@echo "CP $@"
+	@$(BIN) $< $@	
 	
 $(BUILD_DIR):
 	mkdir $@
-
-pp:
-	$(CC) -E $(CFLAGS) main.c -o main.c.e
 
 #######################################
 # Clean up
 #######################################
 clean:
 	-rm -fR $(BUILD_DIR)
+	-rm $(HOST_TARGET)$(EXE)
+	-rm $(GENERATED_HEADERS)
 
 
 #######################################
@@ -208,7 +258,7 @@ debug: all
 	@echo $@
 	@$()openocd -f interface/cmsis-dap.cfg \
 				-f target/gigadevice/gd32vf103.cfg \
-				-c "adapter speed 5000" \
+				-c "adapter speed 5000"
 
 dfu: all
 	@echo $@
@@ -219,5 +269,6 @@ dfu: all
 #######################################
 # -include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
 -include $(wildcard $(BUILD_DIR)/*.d)
+-include $(wildcard $(HOST_BUILD_DIR)/*.d)
 
 # *** EOF ***

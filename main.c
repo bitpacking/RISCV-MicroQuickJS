@@ -68,10 +68,15 @@ void __attribute__((constructor))init(void)
  */
 int main(void)
 {
-    /* LED on pin 1 of GPIOA */
     rcu_periph_clock_enable(RCU_GPIOA);
-    gpio_init(GPIOA, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_1);
-    gpio_bit_reset(GPIOA, GPIO_PIN_1);
+    rcu_periph_clock_enable(RCU_GPIOC);
+
+    gpio_init(GPIOA, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_1 | GPIO_PIN_2);
+    gpio_init(GPIOC, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_13);
+
+    gpio_bit_set(GPIOA, GPIO_PIN_1);      // green led off
+    gpio_bit_set(GPIOA, GPIO_PIN_2);      // blue led off
+    gpio_bit_set(GPIOC, GPIO_PIN_13);     // red led off
 
     /* USART0 */
     rcu_periph_clock_enable(RCU_USART0);

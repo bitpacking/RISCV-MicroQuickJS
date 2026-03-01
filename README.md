@@ -1,29 +1,350 @@
 # MicroQuickJS on RISC-V
 ---
 
+[中文](README.md) | [English](README_en.md)
+
 在 RISC-V MCU 上运行轻量级 JavaScript 运行时 [MicroQuickJS](https://github.com/bellard/mquickjs).
 
 MCU型号为 GD32VF103CBT6, 128K ROM, 32K RAM.
 
 ---
 
-## 编译
+## 在PC上编译
 
-`js_stdlib.h`和`mquickjs_atom.h`这两个头文件需要通过程序生成:
+**注意: 不管你是否打算在PC上编译, 安装 PC 编译器都是必须的, 因为有两个头文件需要在电脑上生成.**
 
-首先编译生成程序:
+首先需要安装 MinGW, 从[Winlibs](https://winlibs.com/)下载即可. 我这里下载的是 MinGW-w64 64位, 下载完成后解压, 将bin目录添加到环境变量 PATH 中:
+
+![环境变量](./images/EV.png)
+
+获取mquickjs的源代码, 在源代码目录中打开终端, 输入make编译:
+
+![编译](./images/make.png)
+
+编译完成后目录中的 mqjs.exe 就是 mquickjs 的交互式解释器了, 可以直接执行js文件:
+
+![mqjs](./images/run_script.png)
+
+也可以进入REPL直接输入JavaScript代码执行:
+
+![REPL](./images/REPL.png)
+
+MicroQuickJS ROM 需求约100KB(ARM Thumb-2 Code), 考虑到`Thumb-2`比`RISC-V`指令密度更高一些, 而GD32VF103CBT6只有128K flash, 预估只够运行解释器核心及简单的 JavaScript 脚本, 无法支持 REPL 环境.
+
+## MicroQuickJS 源代码结构
+
+MicroQuickJS 源代码包含以下 11 个 C 文件:
 
 ```bash
-gcc -o mquickjs_build.exe mquickjs_build.c mqjs_stdlib.c
+cutils.c 
+dota.c
+libm.c
+mquickjs.c
+mqjs.c
+mqjs_stdlib.c
+example.c
+example_stdlib.c
+readline.c
+readline_tty.c
+mquickjs_build.c
 ```
 
-生成头文件:
+部分文件功能简单说明如下:
+
+* `mquickjs.c`: 实现解释器核心. 
+
+* `mqjs.c`: 实现 REPL 交互环境, 可运行 JavaScript 脚本, 也可以将 JavaScript 代码编译为字节码供引擎执行. 可以用它在 PC 上将 JavaScript 脚本编译为字节码, 由 MCU 执行字节码.
+
+* `readline.c` 和 `readline_tty.c`: 提供 REPL 的输入处理和语法高亮等特性.
+
+* `example.c` 和 `example_stdlib.c`: 展示如何使用 C API 在 JavaScript 中定义原生对象(如 Rectagle 和 FilledRectagle), 如果需要自定义原生对象, 可参考这两个文件. 
+
+* `mquickjs_build.c`: 用于将 MicroQuickJS 的标准库和自定义对象编译为可存储在ROM的中C结构体, 需要将其与 `*_stdlib.c` 一起编译为本地可执行程序, 执行此程序生成标准库的头文件`*_stdlib.h`（比如`example_stdlib.h`与`mqjs_stdlib.h`） 和 `mquickjs_atom.h`.
+
+生成头文件时根据目标平台选择地址位数参数: 32 位RISC-V MCU 使用 `-m32` 参数, 64 位平台则使用 `-m64` 参数.
+
+示例: 编译 MicroQuickJS 中的 example
+
+***注意: 请在CMD中执行以下命令, PowerShell 中重定向生成的文件编码为UTF-16LE, 可能导致 GCC 编译失败.***
+
+生成头文件的可执行程序, 注意 `example_stdlib.c` 中包含了 `mqjs_stdlib.c` :
 
 ```bash
-mquickjs_build.exe -a -m32 > mquickjs_atom.h
-mquickjs_build.exe -m32 > js_stdlib.h
+gcc -o example_stdlib.exe example_stdlib.c mquickjs_build.c
 ```
 
-`js_stdlib.h` 在`mquickjs.c`中include即可.
+生成头文件(以 64 位 PC 平台为例):
 
+```bash
+example_stdlib.exe -m64 > example_stdlib.h
+example_stdlib.exe -m64 -a > mquickjs_atom.h
+```
+
+编译 MicroQuickJS 解释器:
+
+```bash
+gcc -o example.exe mquickjs.c dtoa.c libm.c cutils.c example.c
+```
+
+## 编译到 RISC-V (GD32VF103)
+
+MicroQuickJS编译到其它平台时, 需要实现如下函数:
+
+```c
+static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static int64_t get_time_ms(void)
+static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static void js_log_func(void *opaque, const void *buf, size_t buf_len)
+static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static JSValue js_load(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static JSValue js_setTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+```
+
+其中 `js_gc`, `js_load`, `js_setTimeout`, `js_clearTimeout` 四个函数不是必须要实现, 如果不实现的话需要将声明从 `mqjs_stdlib.c` 文件中 `js_global_object[]` 数组中删除.
+
+这里选择不更改 `mquickjs/` 中的源代码, 复制 `mqjs_stdlib.c` 到项目根目录, 并在副本中修改.
+
+新建文件 `microquickjs.c`, 参考 `example.c` 和 `mqjs.c` 实现上述函数:
+
+```c
+// microquickjs.c
+static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    int i;
+    JSValue v;
+
+    for(i = 0; i < argc; i++) {
+        if (i != 0)
+            putchar(' ');
+        v = argv[i];
+        if (JS_IsString(ctx, v)) {
+            JSCStringBuf buf;
+            const char *str;
+            size_t len;
+            str = JS_ToCStringLen(ctx, &len, v, &buf);
+            fwrite(str, 1, len, stdout);
+        } else {
+            JS_PrintValueF(ctx, argv[i], JS_DUMP_LONG);
+        }
+    }
+    putchar('\n');
+    return JS_UNDEFINED;
+}
+
+static int64_t get_time_ms(void)
+{
+    uint64_t tick = get_timer_value();
+
+    return (uint64_t)(tick / (SystemCoreClock / 4000));
+}
+
+
+static JSValue js_date_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    return JS_NewInt64(ctx, get_time_ms());
+}
+
+static JSValue js_performance_now(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    return JS_NewInt64(ctx, get_time_ms());
+}
+
+static JSValue js_gc(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    JS_GC(ctx);
+    return JS_UNDEFINED;
+}
+
+```
+
+## JavaScript脚本加载
+
+MicroQuickJS 使用如下代码加载并执行脚本:
+
+```c
+ int script_len;
+ const uint8_t *script = load_file(&script_len);
+ val = JS_Eval(ctx, (const char *)script, script_len, "script.js", 0);
+```
+
+`load_file()` 函数从文件中读取脚本, 交给引擎执行. 裸机环境无文件系统用, 常见做法是将脚本做为字符串嵌入代码, 但修改脚本不便. 这里选择将脚本文件通过链接器转换为目标文件, 再在 C 代码中引用. 
+
+将`script.js`文件转换为目标文件:
+
+```bash
+ld -r -b binary script.js -o script.o
+```
+
+或使用 GCC: 
+
+```bash
+gcc -r -Wl,-b,binary script.js -o script.o
+```
+
+目标文件中会根据如下规则自动生成相关符号:
+
+```bash
+_binary_<文件名>_<start|end|size>
+```
+
+文件名中的点号`.`, 分割符`-`均会被替换为下划线 `_`, 转换 `script.js` 生成如下符号:
+
+```c
+_binary_script_js_start
+_binary_script_js_end
+_binary_script_js_size
+```
+
+在 C 文件中引用:
+
+```c
+extern char _binary_script_js_start[];
+extern char _binary_script_js_end[];
+extern char _binary_script_js_size[];
+
+static const uint8_t *load_file(int *plen)
+{
+    if (plen)
+        *plen = (size_t)_binary_script_js_size;
+
+    return _binary_script_js_start;
+}
+```
+
+`script.js`文件的内容:
+
+```javascript
+(function() {
+    console.log('Hello from MicroQuickJS on RISC-V!')
+})();
+```
+
+运行后串口输出:
+
+![Hello_from_mqjs_on_riscv](./images/hello_from_mqjs_on_riscv.png)
+
+## 自定义原生对象
+
+新建 `user_stdlib.c`, 用于注册用户自定义对象, 例如, 定义一个 `LED` 类:
+
+```c
+#include "mquickjs_build.h"
+
+// 原型的属性/方法(实例成员)
+static const JSPropDef js_led_proto[] = {
+    // 第一个参数为属性名称, 第二个参数为 getter, 第三个参数为 setter
+    JS_CGETSET_DEF("color", js_led_get_color, NULL),
+    JS_CFUNC_DEF("on", 0, js_led_on),
+    JS_CFUNC_DEF("off", 0, js_led_off),
+    JS_PROP_END,
+};
+
+// 类属性/方法(静态成员)
+static const JSPropDef js_led[] = {
+    // 与上面相同
+    JS_PROP_END,
+};
+
+static const JSClassDef js_led_class =
+    JS_CLASS_DEF("LED", 1, js_led_constructor, JS_CLASS_LED, js_led, js_led_proto, NULL, js_led_finalizer);
+
+#include "mqjs_stdlib.c"
+```
+
+注意需要在此文件末尾包含 `mqjs_stdlib.c`.
+
+然后在 `mqjs_stdlib.c` 中将自定义对象添加到全局对象数组:
+
+```c
+static const JSPropDef js_global_object[] = {
+...
+    JS_PROP_CLASS_DEF("LED", &js_foobar_class),
+    JS_PROP_END,
+};
+...
+```
+
+在 JavaScript 脚本即可使用:
+
+```javascript
+(function() {
+    var led_r = new LED('R')
+    console.log(led_r.color)    // "red"
+    led_r.on()                  // led on
+})()
+```
+
+<font color="red">
+
+再次强调, `user_stdlib.c` 并非由交叉编译器编译, 而是与 `mquickjs/mquickjs_build.c` 一起由本地编译器编译为本地可执行程序, 运行此程序生成 `js_stdlib.h`(可自由命名) 和 `mquickjs_atom.h` (名称固定), 供交叉编译器使用.
+
+</font>
+
+防止有人不知道, 这里啰嗦一句: 
+
+**交叉编译器指将代码编译到其它运行环境的编译器, 简单说就是你编译 MCU 程序用的编译器, 你就将它当做 Keil MDK 一类的东西就行.**
+
+**本地编译器就是将代码编译到编译器所处环境运行的编译器, 说人话就是编译 PC 程序的编译器, 编译后得到的程序在电脑上运行, 你当它是`VisualStudio`一类的东西就行.**
+
+对象 `LED` 相关的实现在 `microquickjs.c` 中.
+
+## 编译流程
+
+1. 生成本地可执行程序:
+
+```bash
+gcc -o mqjs_stdlib.exe user_stdlib.c mqjs_stdlib.c
+```
+
+2. 生成头文件:
+
+```bash
+mqjs_stdlib.exe -a -m32 > mquickjs_atom.h
+mqjs_stdlib.exe -m32 > js_stdlib.h
+```
+
+如果是64位平台, 请使用 `-m64` 参数.
+
+3. 使用交叉编译器正常编译 MCU 工程.
+
+## 使用 makefile 编译
+
+为简化编译流程, 将以上逻辑写入makefile, 输入 `make` 就可以直接编译:
+
+![make](./images/make.gif)
+
+## 点个灯
+
+使用自己定义的 `LED` 对象, 可以用 `JavaScript` 控制开发板上的 `LED`:
+
+```javascript
+var ledr = new LED('R')
+led.on()                // led on
+led.color()             // "red"
+```
+
+编辑 `script.js`, 输入如下代码:
+
+```javascript
+(function() {
+    var s, t, d, r = new LED('R')
+    for (t = 1, d = Date.now;; t=!t) {
+        t ? r.on() : r.off()
+        s = d()
+        while (d() - s < 999){}
+    }
+})();
+```
+
+下载程序, 现在就可以看到开发板上的红灯开始闪烁:
+
+![LED_BLINK](./images/led_blink.gif)
+
+为什么这个闪烁 LED 的脚本写的这么别扭? 
+
+因为真的是一点空间都没有了, 只要写个正常的变量名, 编译后 MCU 的 flash 就装不下.
+
+所以就到此为止了, 祝你玩的快乐.
 

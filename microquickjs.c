@@ -3,9 +3,13 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
-#include "cutils.h"
 #include "mquickjs.h"
+#include "gd32vf103.h"
+
+#define JS_CLASS_LED (JS_CLASS_USER + 0)
+#define JS_CLASS_COUNT (JS_CLASS_USER + 1)
 
 extern uint64_t get_timer_value(void);
 extern uint32_t SystemCoreClock;
@@ -24,7 +28,139 @@ typedef struct {
         .size = (size_t)_binary_##name##_size \
     }
 
-DECLARE_RESOURCE(script_js);
+typedef enum {
+    red = 0,
+    green,
+    blue,
+} color_t;
+
+typedef struct {
+    color_t color;
+    void (*cb)(color_t color, int state);
+} led_t;
+
+char *led_color_tab[] = {
+    "red",
+    "green",
+    "blue",
+};
+
+static void set_led(color_t color, int state);
+
+static led_t leds[] = {
+    {red, set_led},
+    {green, set_led},
+    {blue, set_led},
+};
+
+static void set_led(color_t color, int state)
+{
+    uint32_t gpio, pin;
+
+    switch (color) {
+        case red:
+            gpio = GPIOC;
+            pin = GPIO_PIN_13;
+            break;
+        case green:
+            gpio = GPIOA;
+            pin = GPIO_PIN_1;
+            break;
+        case blue:
+            gpio = GPIOA;
+            pin = GPIO_PIN_2;
+            break;
+        default:
+            return;
+    }
+
+    if (state) {
+        gpio_bit_reset(gpio, pin);
+    } else {
+        gpio_bit_set(gpio, pin);
+    }
+
+    return;
+}
+
+static JSValue js_led_constructor(JSContext *ctx, JSValue *this_val, int argc,
+                                  JSValue *argv)
+{
+    JSValue obj;
+
+    if (!(argc & FRAME_CF_CTOR))
+        return JS_ThrowTypeError(ctx, "must be called with new");
+    // clear constructor flag bit
+    argc &= ~FRAME_CF_CTOR;
+
+    // accepts only one parameter.
+    if (argc != 1)
+        return JS_ThrowTypeError(ctx, "requires exactly 1 argument, got %d", argc);
+
+    // the parameter must be of type string
+    if (!JS_IsString(ctx, argv[0]))
+        return JS_ThrowTypeError(ctx, "argument must be a string");
+
+    // the parameter must be one of 'R', 'G' or 'B'
+    size_t len;
+    JSCStringBuf buf;
+    const char *str = JS_ToCString(ctx, argv[0], &buf);
+    const char color = str[0];
+    if (strlen(str) != 1 || (color != 'R' && color != 'G' && color != 'B'))
+        return JS_ThrowTypeError(ctx, "argument must be 'R', 'G', or 'B'");
+
+    obj = JS_NewObjectClassUser(ctx, JS_CLASS_LED);
+    switch (color) {
+        case 'R':
+            JS_SetOpaque(ctx, obj, &leds[red]);
+            break;
+        case 'G':
+            JS_SetOpaque(ctx, obj, &leds[green]);
+            break;
+        case 'B':
+            JS_SetOpaque(ctx, obj, &leds[blue]);
+            break;
+        default:
+            break;
+    }
+
+    return obj;
+}
+
+static void js_led_finalizer(JSContext *ctx, void *opaque)
+{
+    return;
+}
+
+static JSValue js_led_get_color(JSContext *ctx, JSValue *this_val, int argc,
+                                JSValue *argv)
+{
+    led_t *led;
+
+    int class_id = JS_GetClassID(ctx, *this_val);
+    if (class_id != JS_CLASS_LED)
+        return JS_ThrowTypeError(ctx, "expectint LED class");
+
+    led = JS_GetOpaque(ctx, *this_val);
+
+    return JS_NewString(ctx, led_color_tab[led->color]);
+}
+
+static JSValue js_led_on(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    led_t *led = JS_GetOpaque(ctx, *this_val);
+    led->cb(led->color, 1);
+
+    return JS_UNDEFINED;
+}
+
+static JSValue js_led_off(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
+{
+    led_t *led = JS_GetOpaque(ctx, *this_val);
+    led->cb(led->color, 0);
+
+    return JS_UNDEFINED;
+}
 
 static JSValue js_print(JSContext *ctx, JSValue *this_val, int argc, JSValue *argv)
 {
@@ -53,7 +189,7 @@ static int64_t get_time_ms(void)
 {
     uint64_t tick = get_timer_value();
 
-    // tick 计数器频率来源是系统频率的4分频
+    // the tick counter frequency is derived from the system clock divided by 4
     return (uint64_t)(tick / (SystemCoreClock / 4000));
 }
 
@@ -97,6 +233,8 @@ static void js_log_func(void *opaque, const void *buf, size_t buf_len)
 }
 
 
+DECLARE_RESOURCE(script_js);
+
 static const uint8_t *load_file(int *plen)
 {
     if (plen)
@@ -104,23 +242,6 @@ static const uint8_t *load_file(int *plen)
 
     return script_js.data;
 }
-
-#if 0
-static const uint8_t *load_file(int *plen)
-{
-    static const uint8_t script[] =
-        "function hello() {\n"
-        "   console.log('Hello from MicroQuickJS')\n"
-        "}\n"
-        "hello()\n";
-    uint8_t len = sizeof(script) - 1;
-
-    if (plen)
-        *plen = (int)len;
-
-    return script;
-}
-#endif
 
 int js_runtime(void)
 {
