@@ -101,7 +101,11 @@ HOST_BUILD_DIR = $(BUILD_DIR)/host
 # C defines
 C_DEFS =  \
 -D USE_STDPERIPH_DRIVER \
--D HXTAL_VALUE=8000000U \
+-D HXTAL_VALUE=8000000U 
+
+# for mquickjs
+C_DEFS += \
+-D USE_SOFTFLOAT
 
 # AS defines
 AS_DEFS = 
