@@ -260,7 +260,7 @@ static const JSClassDef js_led_class =
 ```c
 static const JSPropDef js_global_object[] = {
 ...
-    JS_PROP_CLASS_DEF("LED", &js_foobar_class),
+    JS_PROP_CLASS_DEF("LED", &js_led_class),
     JS_PROP_END,
 };
 ...
@@ -315,6 +315,10 @@ mqjs_stdlib.exe -m32 > js_stdlib.h
 
 ![make](./images/make.gif)
 
+## 使用 softfloat 以节省空间
+
+GCC的软浮点实现占用空间比较大, MicroQuickJS自带软浮点实现, 可以使用宏`USE_SOFTFLOAT`启用, 使用 MicroQuickJS 自带的软浮点实现可节省约5KByte空间, 就可以写更长的脚本和实现更多的用户自定义对象了.
+
 ## 点个灯
 
 使用自己定义的 `LED` 对象, 可以用 `JavaScript` 控制开发板上的 `LED`:
@@ -329,22 +333,24 @@ led.color()             // "red"
 
 ```javascript
 (function() {
-    var s, t, d, r = new LED('R')
-    for (t = 1, d = Date.now;; t=!t) {
-        t ? r.on() : r.off()
-        s = d()
-        while (d() - s < 999){}
+    var led = new LED('R')
+    var isLedOn = true
+    while (true) {
+        if (isLedOn)
+            led.on()
+        else
+            led.off()
+
+        var time = Date.now()
+        while (Date.now() - time < 1000) {}
+
+        isLedOn = !isLedOn
     }
 })();
+
 ```
 
 下载程序, 现在就可以看到开发板上的红灯开始闪烁:
 
 ![LED_BLINK](./images/led_blink.gif)
-
-为什么这个闪烁 LED 的脚本写的这么别扭? 
-
-因为真的是一点空间都没有了, 只要写个正常的变量名, 编译后 MCU 的 flash 就装不下.
-
-所以就到此为止了, 祝你玩的快乐.
 
