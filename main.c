@@ -54,6 +54,7 @@ OF SUCH DAMAGE.
 #include "systick.h"
 
 extern int js_runtime(void);
+extern void js_run_repl(void);
 
 void __attribute__((constructor))init(void)
 {
@@ -103,6 +104,9 @@ int main(void)
     printf("CK_APB1: %d\n", rcu_clock_freq_get(CK_APB1));
     printf("CK_APB2: %d\n", rcu_clock_freq_get(CK_APB2));
 
+    js_run_repl();
+
+    // after exit repl, run script.js
     int js_rt_retval = js_runtime();
     printf("MicroQuickJS Runtime return %d\n", js_rt_retval);
 
@@ -119,6 +123,16 @@ int _put_char(int ch)
 {
     usart_data_transmit(USART0, (uint8_t)ch);
     while (usart_flag_get(USART0, USART_FLAG_TBE) == RESET);
+
+    return ch;
+}
+
+char uart_read(void)
+{
+    uint8_t ch;
+
+    while (usart_flag_get(USART0, USART_FLAG_RBNE) == RESET);
+    ch = usart_data_receive(USART0);
 
     return ch;
 }

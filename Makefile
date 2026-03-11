@@ -47,7 +47,10 @@ C_SOURCES += \
 mquickjs/dtoa.c \
 mquickjs/libm.c \
 mquickjs/cutils.c \
-mquickjs/mquickjs.c \
+mquickjs/mquickjs.c
+
+# for MicroQuickJS REPL
+C_SOURCES += mquickjs/readline.c
 
 # add all c file in the root dir
 C_SOURCES += \

@@ -8,6 +8,12 @@
 #include "mquickjs.h"
 #include "gd32vf103.h"
 
+// eliminate "FALSE" redeclaration error
+#define FALSE 0
+#define TRUE  1
+
+#include "readline_tty.h"
+
 #define JS_CLASS_LED (JS_CLASS_USER + 0)
 #define JS_CLASS_COUNT (JS_CLASS_USER + 1)
 
@@ -227,12 +233,6 @@ static JSValue js_clearTimeout(JSContext *ctx, JSValue *this_val, int argc, JSVa
 
 #include "js_stdlib.h"
 
-static void js_log_func(void *opaque, const void *buf, size_t buf_len)
-{
-    fwrite(buf, 1, buf_len, stdout);
-}
-
-
 DECLARE_RESOURCE(script_js);
 
 static const uint8_t *load_file(int *plen)
@@ -241,6 +241,201 @@ static const uint8_t *load_file(int *plen)
         *plen = (int)script_js.size;
 
     return script_js.data;
+}
+
+/* repl */
+#define STYLE_DEFAULT    COLOR_BRIGHT_GREEN
+#define STYLE_COMMENT    COLOR_WHITE
+#define STYLE_STRING     COLOR_BRIGHT_CYAN
+#define STYLE_REGEX      COLOR_CYAN
+#define STYLE_NUMBER     COLOR_GREEN
+#define STYLE_KEYWORD    COLOR_BRIGHT_WHITE
+#define STYLE_FUNCTION   COLOR_BRIGHT_YELLOW
+#define STYLE_TYPE       COLOR_BRIGHT_MAGENTA
+#define STYLE_IDENTIFIER COLOR_BRIGHT_GREEN
+#define STYLE_ERROR      COLOR_RED
+#define STYLE_RESULT     COLOR_BRIGHT_WHITE
+#define STYLE_ERROR_MSG  COLOR_BRIGHT_RED
+
+static int js_log_err_flag;
+
+static void js_log_func(void *opaque, const void *buf, size_t buf_len)
+{
+    fwrite(buf, 1, buf_len, js_log_err_flag ? stderr : stdout);
+}
+
+static void dump_error(JSContext *ctx)
+{
+    JSValue obj;
+    obj = JS_GetException(ctx);
+    fprintf(stderr, "%s", term_colors[STYLE_ERROR_MSG]);
+    js_log_err_flag++;
+    JS_PrintValueF(ctx, obj, JS_DUMP_LONG);
+    js_log_err_flag--;
+    fprintf(stderr, "%s\n", term_colors[COLOR_NONE]);
+}
+
+static int eval_buf(JSContext *ctx, const char *eval_str, const char *filename, BOOL is_repl, int parse_flags)
+{
+    JSValue val;
+    int flags;
+
+    flags = parse_flags;
+    if (is_repl)
+        flags |= JS_EVAL_RETVAL | JS_EVAL_REPL;
+    val = JS_Parse(ctx, eval_str, strlen(eval_str), filename, flags);
+    if (JS_IsException(val))
+        goto exception;
+
+    val = JS_Run(ctx, val);
+    if (JS_IsException(val)) {
+    exception:
+        dump_error(ctx);
+        return 1;
+    } else {
+        if (is_repl) {
+            printf("%s", term_colors[STYLE_RESULT]);
+            JS_PrintValueF(ctx, val, JS_DUMP_LONG);
+            printf("%s\r\n", term_colors[COLOR_NONE]);
+        }
+        return 0;
+    }
+}
+
+static ReadlineState readline_state;
+static uint8_t readline_cmd_buf[256];
+static uint8_t readline_kill_buf[256];
+static char readline_history[512];
+
+void readline_find_completion(const char *cmdline)
+{
+    return;
+}
+
+static BOOL is_word(int c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        c == '_' || c == '$';
+}
+
+static const char js_keywords[] =
+    "break|case|catch|continue|debugger|default|delete|do|"
+    "else|finally|for|function|if|in|instanceof|new|"
+    "return|switch|this|throw|try|typeof|while|with|"
+    "class|const|enum|import|export|extends|super|"
+    "implements|interface|let|package|private|protected|"
+    "public|static|yield|"
+    "undefined|null|true|false|Infinity|NaN|"
+    "eval|arguments|"
+    "await|";
+
+static const char js_types[] = "void|var|";
+
+static BOOL find_keyword(const char *buf, size_t buf_len, const char *dict)
+{
+    const char *r, *p = dict;
+    while (*p != '\0') {
+        r = strchr(p, '|');
+        if (!r)
+            break;
+        if ((r - p) == buf_len && !memcmp(buf, p, buf_len))
+            return TRUE;
+        p = r + 1;
+    }
+    return FALSE;
+}
+
+/* return the color for the character at position 'pos' and the number
+   of characters of the same color */
+static int term_get_color(int *plen, const char *buf, int pos, int buf_len)
+{
+    int c, color, pos1, len;
+
+    c = buf[pos];
+    if (c == '"' || c == '\'') {
+        pos1 = pos + 1;
+        for(;;) {
+            if (buf[pos1] == '\0' || buf[pos1] == c)
+                break;
+            if (buf[pos1] == '\\' && buf[pos1 + 1] != '\0')
+                pos1 += 2;
+            else
+                pos1++;
+        }
+        if (buf[pos1] != '\0')
+            pos1++;
+        len = pos1 - pos;
+        color = STYLE_STRING;
+    } else if (c == '/' && buf[pos + 1] == '*') {
+        pos1 = pos + 2;
+        while (buf[pos1] != '\0' &&
+               !(buf[pos1] == '*' && buf[pos1 + 1] == '/')) {
+            pos1++;
+        }
+        if (buf[pos1] != '\0')
+            pos1 += 2;
+        len = pos1 - pos;
+        color = STYLE_COMMENT;
+    } else if ((c >= '0' && c <= '9') || c == '.') {
+        pos1 = pos + 1;
+        while (is_word(buf[pos1]))
+            pos1++;
+        len = pos1 - pos;
+        color = STYLE_NUMBER;
+    } else if (is_word(c)) {
+        pos1 = pos + 1;
+        while (is_word(buf[pos1]))
+            pos1++;
+        len = pos1 - pos;
+        if (find_keyword(buf + pos, len, js_keywords)) {
+            color = STYLE_KEYWORD;
+        } else {
+            while (buf[pos1] == ' ')
+                pos1++;
+            if (buf[pos1] == '(') {
+                color = STYLE_FUNCTION;
+            } else {
+                if (find_keyword(buf + pos, len, js_types)) {
+                    color = STYLE_TYPE;
+                } else {
+                    color = STYLE_IDENTIFIER;
+                }
+            }
+        }
+    } else {
+        color = STYLE_DEFAULT;
+        len = 1;
+    }
+    *plen = len;
+    return color;
+}
+
+static int js_interrupt_handler(JSContext *ctx, void *opaque)
+{
+    return readline_is_interrupted();
+}
+
+static void repl_run(JSContext *ctx)
+{
+    ReadlineState *s = &readline_state;
+    const char *cmd;
+
+    s->term_width = readline_tty_init();
+    s->term_cmd_buf = readline_cmd_buf;
+    s->term_kill_buf = readline_kill_buf;
+    s->term_cmd_buf_size = sizeof(readline_cmd_buf);
+    s->term_history = readline_history;
+    s->term_history_buf_size = sizeof(readline_history);
+    s->get_color = term_get_color;
+
+    JS_SetInterruptHandler(ctx, js_interrupt_handler);
+
+    for (;;) {
+        cmd = readline_tty(&readline_state, "mqjs-rv > ", FALSE);
+        if (!cmd)
+            break;
+        eval_buf(ctx, cmd, "<cmdline>", TRUE, 0);
+    }
 }
 
 int js_runtime(void)
@@ -266,4 +461,19 @@ int js_runtime(void)
 
     JS_FreeContext(ctx);
     return 0;
+}
+
+void js_run_repl(void)
+{
+    JSContext *ctx;
+    JSValue val;
+    const size_t rt_mem_size = 25600;
+    uint8_t buff[rt_mem_size];
+
+    ctx = JS_NewContext(buff, rt_mem_size, &js_stdlib);
+    JS_SetLogFunc(ctx, js_log_func);
+
+    repl_run(ctx);
+
+    JS_FreeContext(ctx);
 }
