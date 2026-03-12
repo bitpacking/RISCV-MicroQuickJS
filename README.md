@@ -315,7 +315,7 @@ mqjs_stdlib.exe -m32 > js_stdlib.h
 
 ![make](./images/make.gif)
 
-## 使用 softfloat 以节省空间
+## 使用 softfloat 节省空间
 
 GCC的软浮点实现占用空间比较大, MicroQuickJS自带软浮点实现, 可以使用宏`USE_SOFTFLOAT`启用, 使用 MicroQuickJS 自带的软浮点实现可节省约5KByte空间, 就可以写更长的脚本和实现更多的用户自定义对象了.
 
@@ -354,3 +354,43 @@ led.color()             // "red"
 
 ![LED_BLINK](./images/led_blink.gif)
 
+## 使用 REPL
+
+MicroQuickJS 使用 `readline.c` 和 `readline_tty.c` 实现了一个自带语法高亮的 REPL, 使用 MicroQuickJS 自带的软件浮点实现后, 节省出超过 5K 的 flash 空间, 这使得加入 REPL 成为可能.
+
+因为 MicroQuickJS 中的 REPL 实现在基于 PC 的, 在嵌入式系统上需要略做修改才能使用. 
+
+`mquickjs/readline_tty.c` 修改的地方太多, 所以在根目录新建 `readline_tty.c`, 重新实现相关接口.
+
+函数 `term_printf()` 和 `term_flush()` 可以直接使用.
+
+在嵌入式系统上, 函数 `readline_tty_init()` 没什么可以初始化的东西, 直接返回列数为`80`即可.
+
+```c
+int readline_tty_init(void)
+{
+    int n_cols = 80;
+
+    // clear screen
+    term_printf("\033[2J\033[H");
+    term_printf("mquickjs on risc-v\r\n");
+    term_printf("presse Ctrl+C to exit\r\n");
+    term_flush();
+
+    return n_cols;
+}
+```
+
+函数 `readline_tty()` 中使用了 posix 函数 `read()`, 因为嵌入式系统主要是从串口读数据, 所以需要重新实现read(), 鉴于 read() 函数在这里也是阻塞式读取, 就干脆轮询从串口读数据, 包装一下做为 `read()` 就可以了.
+
+接下来在 `microquickjs.c` 中实现 `eval_buf()`, `term_get_color()` 等必要函数. 基本上这些函数可以照抄 `mquickjs/mqjs.c` 中的代码, 在此就不多说了. 
+
+修改完成后编译下载, 使用 PuTTY 或类似工具连接串口(注意必须使用TTY工具, 使用串口助手连接得到的将是类似乱码的的东西), 我这里使用的是 WSL, 命令是 screen /dev/ttyS7 115200, 现在就可以使用 REPL 了:
+
+![REPL](./images/js_repl.gif)
+
+**注意因为初始化的时候返回的列数为80, 所以必须保证TTY窗口的宽度为80列, 否则输入超过80个字符后会出现显示混乱的情况**
+
+按两次 `Ctrl+C` 可以退出 REPL, 这里选择退出 REPL 后执行之前的 JavaScript 脚本文件.
+
+目前仓库有3个分支, `repl` 分支增加 `repl` 实现, `master` 分支停留在增加 `repl` 之前, `dev` 分支与 `repl` 相同.
