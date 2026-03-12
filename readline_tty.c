@@ -7,18 +7,16 @@
 static int ctrl_c_pressed;
 extern char uart_read(void);
 
-ssize_t read(int fd, void *buf, size_t count)
+uint8_t read(void)
 {
     uint8_t ch = uart_read();
-    *((uint8_t *)buf) = ch;
 
     // ctrl + c
     if (ch == 0x03) {
         ctrl_c_pressed = 1;
     }
 
-    // read 1 byte
-    return 1;
+    return ch;
 }
 
 void term_printf(const char *fmt, ...)
@@ -51,34 +49,27 @@ int readline_tty_init(void)
 const char *readline_tty(ReadlineState *s,
                          const char *prompt, BOOL multi_line)
 {
-    int len, ctrl_c_count = 0, c, ret;
-    const char *ret_str;
-    uint8_t buf[128];
+    int ctrl_c_count = 0, ret;
 
     readline_start(s, prompt, FALSE);
 
     for (;;) {
-        len = read(0, buf, sizeof(buf));
-        if (len == 0)
-            return NULL;
+        char c = read();
 
-        for (int i = 0; i < len; i++) {
-            c = buf[i];
-            ret = readline_handle_byte(s, c);
-            if (ret == READLINE_RET_EXIT) {
-                return NULL;
-            } else if (ret == READLINE_RET_ACCEPTED) {
-                return (const char *)s->term_cmd_buf;
-            }
+        ret = readline_handle_byte(s, c);
+        if (ret == READLINE_RET_EXIT) {
+            return NULL;
+        } else if (ret == READLINE_RET_ACCEPTED) {
+            return (const char *)s->term_cmd_buf;
         }
 
         if (ctrl_c_pressed) {
             ctrl_c_pressed = 0;
             if (ctrl_c_count == 0) {
-                printf("\r\n(Press Ctrl-C again to quit)\r\n");
+                term_printf("Press Ctrl-C again to quit)\r\n");
                 ctrl_c_count++;
             } else {
-                printf("\r\nExiting.\r\n");
+                term_printf("Exiting.\r\n");
                 return NULL;
             }
         }
